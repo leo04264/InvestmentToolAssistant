@@ -1,0 +1,148 @@
+name: Daily Stock Analysis
+
+on:
+  schedule:
+    # 每個工作日 18:00 台北時間 = 10:00 UTC（讓三大法人資料公布後再跑）
+    - cron: '0 10 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      stock_id:
+        description: '股票代號（如 2330）'
+        required: false
+        default: '2330'
+      stock_ids:
+        description: '多支股票（逗號分隔，會覆蓋 stock_id）'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Run analysis
+        id: run
+        env:
+          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+        run: |
+          set -euo pipefail
+          DATE_TPE=$(TZ=Asia/Taipei date +'%Y-%m-%d')
+          REPORT_DIR="reports/${DATE_TPE}"
+          mkdir -p "$REPORT_DIR"
+
+          IDS_INPUT="${{ github.event.inputs.stock_ids }}"
+          SINGLE_ID="${{ github.event.inputs.stock_id }}"
+          if [ -z "$IDS_INPUT" ]; then
+            IDS_INPUT="${SINGLE_ID:-2330}"
+          fi
+
+          IFS=',' read -ra IDS <<< "$IDS_INPUT"
+          GENERATED=()
+          for raw in "${IDS[@]}"; do
+            ID=$(echo "$raw" | xargs)
+            [ -z "$ID" ] && continue
+            echo "→ analyzing $ID"
+            npx ts-node src/index.ts --fetch "$ID" -o "$REPORT_DIR/${ID}.md"
+            GENERATED+=("$REPORT_DIR/${ID}.md")
+          done
+
+          {
+            echo "report_dir=$REPORT_DIR"
+            echo "report_date=$DATE_TPE"
+            echo "stock_ids=$IDS_INPUT"
+            echo "report_paths=${GENERATED[*]}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Commit reports
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports/
+          if git diff --cached --quiet; then
+            echo "No new report files to commit."
+            exit 0
+          fi
+          git commit -m "chore(reports): ${{ steps.run.outputs.report_date }} (${{ steps.run.outputs.stock_ids }})"
+          git push
+
+      - name: Open daily issue
+        uses: actions/github-script@v7
+        env:
+          REPORT_DIR: ${{ steps.run.outputs.report_dir }}
+          REPORT_DATE: ${{ steps.run.outputs.report_date }}
+          STOCK_IDS: ${{ steps.run.outputs.stock_ids }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const reportDir = process.env.REPORT_DIR;
+            const date = process.env.REPORT_DATE;
+            const ids = process.env.STOCK_IDS.split(',').map(s => s.trim()).filter(Boolean);
+
+            const sections = [];
+            for (const id of ids) {
+              const file = path.join(reportDir, `${id}.md`);
+              if (!fs.existsSync(file)) continue;
+              const md = fs.readFileSync(file, 'utf8');
+              const summary = md.split('## 二、')[0].trim();
+              const url = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.ref.replace('refs/heads/', '')}/${file}`;
+              sections.push(`### [${id}](${url})\n\n${summary}\n\n[完整報告 →](${url})`);
+            }
+
+            const body = [
+              `自動產生於 ${date}（台北時間）。`,
+              '',
+              ...sections,
+              '',
+              '---',
+              `如要重跑：到 Actions → Daily Stock Analysis → Run workflow。`,
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `📈 每日分析報告 ${date}（${ids.join(', ')}）`,
+              body,
+              labels: ['daily-analysis'],
+            });
+
+  ai-summary:
+    needs: analyze
+    runs-on: ubuntu-latest
+    if: ${{ vars.ENABLE_AI_SUMMARY == 'true' }}
+    steps:
+      - name: Checkout (latest with new reports)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 1
+
+      - name: Claude Code summary
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            找到 reports/ 底下「日期最新」的目錄，逐一讀取裡面的 .md 報告，
+            為每一份產出一段 200 字以內的中文白話操作建議，包含：
+            1. 目前情況概述
+            2. 建議動作（短線 / 中線 / 長線分別一句）
+            3. 主要風險與觸發訊號
+
+            把摘要彙整成一份 SUMMARY.md 寫到同一個日期目錄，
+            然後 commit & push 到當前分支。不要修改原始報告。

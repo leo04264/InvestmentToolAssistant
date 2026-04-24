@@ -16,6 +16,17 @@ import { describeInstitutionalSignals } from "./institutional";
 import { describeRating } from "./fundamental";
 import { describeTrendStage } from "./trend";
 import { describeVolumeSignals } from "./volume";
+import {
+  foreignNetChart,
+  fundamentalScoreChart,
+  institutionalCumulativeChart,
+  priceLineChart,
+  volumeBarChart,
+} from "../charts/mermaid";
+
+export type ReportRenderOptions = {
+  candleChartPath?: string;
+};
 
 function fmtNum(v: number, digits = 2): string {
   if (!isFinite(v)) return "N/A";
@@ -261,7 +272,10 @@ function renderRisk(bundle: AnalysisBundle): string {
   return lines.join("\n");
 }
 
-export function buildReport(bundle: AnalysisBundle): string {
+export function buildReport(
+  bundle: AnalysisBundle,
+  opts: ReportRenderOptions = {}
+): string {
   const lines: string[] = [];
   lines.push(`# 股票分析報告：${bundle.stockName} (${bundle.stockId})`);
   lines.push("");
@@ -275,62 +289,111 @@ export function buildReport(bundle: AnalysisBundle): string {
   lines.push(renderSummary(bundle));
   lines.push("");
 
-  lines.push("## 二、趨勢位置");
+  if (opts.candleChartPath) {
+    lines.push("## 二、K 線 / 均線 / 支撐壓力總覽");
+    lines.push("");
+    lines.push(`![K 線圖](${opts.candleChartPath})`);
+    lines.push("");
+  }
+
+  lines.push("## 三、趨勢位置");
   lines.push("");
   lines.push(renderTrend(bundle.trend));
   lines.push("");
+  const priceChart = priceLineChart(bundle.candles.map((c) => ({
+    date: c.date,
+    open: c.open,
+    high: c.high,
+    low: c.low,
+    close: c.close,
+    volume: 0,
+  })));
+  if (priceChart) {
+    lines.push(priceChart);
+    lines.push("");
+  }
 
-  lines.push("## 三、K 線訊號");
+  lines.push("## 四、K 線訊號");
   lines.push("");
   lines.push(renderCandles(bundle.candles));
   lines.push("");
 
-  lines.push("## 四、成交量分析");
+  lines.push("## 五、成交量分析");
   lines.push("");
   lines.push(renderVolume(bundle.volumes));
   lines.push("");
+  const volChart = volumeBarChart(
+    bundle.candles.map((c) => ({
+      date: c.date,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: bundle.volumes.find((v) => v.date === c.date)?.volume ?? 0,
+    })),
+    bundle.volumes
+  );
+  if (volChart) {
+    lines.push(volChart);
+    lines.push("");
+  }
 
-  lines.push("## 五、法人籌碼分析");
+  lines.push("## 六、法人籌碼分析");
   lines.push("");
   lines.push(renderInstitutional(bundle.institutional));
   lines.push("");
+  const fnChart = foreignNetChart(bundle.institutional);
+  if (fnChart) {
+    lines.push(fnChart);
+    lines.push("");
+  }
+  const cumChart = institutionalCumulativeChart(bundle.institutional);
+  if (cumChart) {
+    lines.push(cumChart);
+    lines.push("");
+  }
 
-  lines.push("## 六、基本面分析");
+  lines.push("## 七、基本面分析");
   lines.push("");
   lines.push(renderFundamental(bundle.fundamental));
   lines.push("");
+  const fScoreChart = fundamentalScoreChart(bundle.fundamental);
+  if (fScoreChart) {
+    lines.push(fScoreChart);
+    lines.push("");
+  }
 
-  lines.push("## 七、支撐與壓力");
+  lines.push("## 八、支撐與壓力");
   lines.push("");
   lines.push(renderLevels(bundle.levels));
   lines.push("");
 
-  lines.push("## 八、短線策略（1 - 10 個交易日）");
+  lines.push("## 九、短線策略（1 - 10 個交易日）");
   lines.push("");
   lines.push(renderStrategy(bundle.shortTerm, "短線"));
   lines.push("");
 
-  lines.push("## 九、中線策略（2 週 - 3 個月）");
+  lines.push("## 十、中線策略（2 週 - 3 個月）");
   lines.push("");
   lines.push(renderStrategy(bundle.midTerm, "中線"));
   lines.push("");
 
-  lines.push("## 十、長線策略（3 個月以上）");
+  lines.push("## 十一、長線策略（3 個月以上）");
   lines.push("");
   lines.push(renderStrategy(bundle.longTerm, "長線"));
   lines.push("");
 
-  lines.push("## 十一、分批買入計畫");
+  lines.push("## 十二、分批買入計畫");
   lines.push("");
   lines.push(renderBuyPlan(bundle.buyPlan));
   lines.push("");
 
-  lines.push("## 十二、分批賣出計畫");
+  lines.push("## 十三、分批賣出計畫");
   lines.push("");
   lines.push(renderSellPlan(bundle.sellPlan));
   lines.push("");
 
-  lines.push("## 十三、風險訊號");
+  lines.push("## 十四、風險訊號");
   lines.push("");
   lines.push(renderRisk(bundle));
   lines.push("");

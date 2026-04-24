@@ -20,6 +20,8 @@ import {
 } from "./analysis/strategy";
 import { buildReport } from "./analysis/report";
 import { buildMockInput } from "./data/mockStockData";
+import { fetchAnalysisInput } from "./data/finmindFetcher";
+import { renderCandleSVG } from "./charts/svg";
 
 export function analyze(input: AnalysisInput): AnalysisBundle {
   const candles = computeCandleSeries(input.prices);
@@ -52,14 +54,14 @@ export function analyze(input: AnalysisInput): AnalysisBundle {
 
   const riskSignals: string[] = [];
   const lastInst = institutional[institutional.length - 1];
-  if (lastInst.foreignSellStreak >= 3) {
+  if (lastInst && lastInst.foreignSellStreak >= 3) {
     riskSignals.push(`外資已連續賣超 ${lastInst.foreignSellStreak} 日`);
   }
-  if (lastInst.totalSellStreak >= 3) {
+  if (lastInst && lastInst.totalSellStreak >= 3) {
     riskSignals.push(`三大法人已連續賣超 ${lastInst.totalSellStreak} 日`);
   }
   const lastVol = volumes[volumes.length - 1];
-  if (lastVol.signals.includes("DISTRIBUTION_VOLUME")) {
+  if (lastVol && lastVol.signals.includes("DISTRIBUTION_VOLUME")) {
     riskSignals.push("最新 K 線出現爆量不漲或長上影，疑似高檔出貨");
   }
 
@@ -83,8 +85,16 @@ export function analyze(input: AnalysisInput): AnalysisBundle {
   };
 }
 
-function parseArgs(argv: string[]): { output?: string; jsonPath?: string } {
-  const opts: { output?: string; jsonPath?: string } = {};
+type CliOptions = {
+  output?: string;
+  jsonPath?: string;
+  fetchStockId?: string;
+  token?: string;
+  asOf?: string;
+};
+
+function parseArgs(argv: string[]): CliOptions {
+  const opts: CliOptions = {};
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if ((arg === "-o" || arg === "--output") && argv[i + 1]) {
@@ -93,34 +103,71 @@ function parseArgs(argv: string[]): { output?: string; jsonPath?: string } {
     } else if ((arg === "-i" || arg === "--input") && argv[i + 1]) {
       opts.jsonPath = argv[i + 1];
       i++;
+    } else if (arg === "--fetch" && argv[i + 1] && !argv[i + 1].startsWith("-")) {
+      opts.fetchStockId = argv[i + 1];
+      i++;
+    } else if (arg === "--token" && argv[i + 1]) {
+      opts.token = argv[i + 1];
+      i++;
+    } else if (arg === "--as-of" && argv[i + 1]) {
+      opts.asOf = argv[i + 1];
+      i++;
     }
   }
   return opts;
 }
 
-function loadInput(jsonPath?: string): AnalysisInput {
-  if (!jsonPath) return buildMockInput();
-  const abs = path.resolve(jsonPath);
-  const raw = fs.readFileSync(abs, "utf-8");
-  return JSON.parse(raw) as AnalysisInput;
+async function loadInput(opts: CliOptions): Promise<AnalysisInput> {
+  if (opts.fetchStockId) {
+    return fetchAnalysisInput({
+      stockId: opts.fetchStockId,
+      token: opts.token ?? process.env.FINMIND_TOKEN,
+      asOf: opts.asOf,
+    });
+  }
+  if (opts.jsonPath) {
+    const abs = path.resolve(opts.jsonPath);
+    const raw = fs.readFileSync(abs, "utf-8");
+    return JSON.parse(raw) as AnalysisInput;
+  }
+  return buildMockInput();
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
-  const input = loadInput(opts.jsonPath);
+  const input = await loadInput(opts);
   const bundle = analyze(input);
-  const report = buildReport(bundle);
 
+  let candleChartPath: string | undefined;
   if (opts.output) {
-    const abs = path.resolve(opts.output);
-    fs.mkdirSync(path.dirname(abs), { recursive: true });
-    fs.writeFileSync(abs, report, "utf-8");
-    process.stdout.write(`Report written to ${abs}\n`);
+    const outAbs = path.resolve(opts.output);
+    const outDir = path.dirname(outAbs);
+    const assetsDir = path.join(outDir, "assets");
+    fs.mkdirSync(assetsDir, { recursive: true });
+
+    const svg = renderCandleSVG({
+      prices: input.prices,
+      candles: bundle.candles,
+      levels: bundle.levels,
+      title: `${bundle.stockName} (${bundle.stockId}) — ${bundle.analysisDate}`,
+    });
+    const svgPath = path.join(assetsDir, `${bundle.stockId}-candles.svg`);
+    fs.writeFileSync(svgPath, svg, "utf-8");
+    candleChartPath = path.relative(outDir, svgPath).split(path.sep).join("/");
+
+    const report = buildReport(bundle, { candleChartPath });
+    fs.writeFileSync(outAbs, report, "utf-8");
+    process.stdout.write(`Report written to ${outAbs}\n`);
+    process.stdout.write(`Candle SVG written to ${svgPath}\n`);
   } else {
+    const report = buildReport(bundle);
     process.stdout.write(report);
   }
 }
 
 if (require.main === module) {
-  main();
+  main().catch((err) => {
+    process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(1);
+  });
 }

@@ -62,7 +62,22 @@ npm run analyze
 npx ts-node src/index.ts -o examples/sample-report.md
 ```
 
-### 3. 用自己的 JSON 資料
+### 3. 抓真實資料（FinMind）
+
+```bash
+# 匿名速率
+npx ts-node src/index.ts --fetch 2330 -o reports/2330.md
+
+# 使用 FinMind token（高速率）
+FINMIND_TOKEN=xxx npx ts-node src/index.ts --fetch 2330 -o reports/2330.md
+
+# 指定截止日（回測用）
+npx ts-node src/index.ts --fetch 2330 --as-of 2026-04-30 -o reports/2330.md
+```
+
+報告會輸出 `reports/2330.md`（內含 Mermaid 圖表 + 表格）和 `reports/assets/2330-candles.svg`（K 線 / 均線 / 支撐壓力疊圖），GitHub Markdown 直接可看。
+
+### 4. 用自己的 JSON 資料
 
 ```bash
 npx ts-node src/index.ts -i my-stock.json -o my-report.md
@@ -94,7 +109,7 @@ npx ts-node src/index.ts -i my-stock.json -o my-report.md
 }
 ```
 
-### 4. 作為 library 使用
+### 5. 作為 library 使用
 
 ```ts
 import { analyze } from "./src";
@@ -139,8 +154,24 @@ npx ts-node src/index.ts -o examples/sample-report.md
 
 ---
 
+## 每日排程（GitHub Actions）
+
+`.github/workflows/daily-analysis.yml` 已內建：
+
+- 每個工作日 18:00（台北時間）自動跑
+- 也可以手動 `Run workflow` 並指定股票代號
+- 抓 FinMind 真實資料 → 產報告 + SVG 圖 → commit 到 `reports/YYYY-MM-DD/` → 開一個 Issue 貼總結
+
+設定步驟：
+
+1. 進 repo → Settings → Actions → 確認 workflows 已開
+2. （選用）Settings → Secrets → 新增 `FINMIND_TOKEN`，提高 API 速率
+3. （選用 AI 摘要）Settings → Variables → 新增 `ENABLE_AI_SUMMARY=true`，並在 Secrets 加 `ANTHROPIC_API_KEY`，workflow 會多跑一個 job 讓 Claude 寫白話摘要
+
+要分析多支：手動觸發時在 `stock_ids` 欄位填 `2330,2317,0050`。
+
 ## 後續擴充
 
-- 替換 `buildMockInput` 為真實資料來源（TWSE / yfinance / 自有資料庫）
 - 把 `analyze()` 包成 HTTP / tRPC endpoint，串接前端儀表板
 - 擴充至 React / Next.js / Expo App 的股票分析儀表板
+- 將 SVG 改成互動式 Plotly / Lightweight Charts
