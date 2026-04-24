@@ -1,0 +1,20 @@
+{
+  "name": "investment-tool-assistant",
+  "version": "0.1.0",
+  "description": "Stock analysis CLI: candle x volume x institutional x fundamental x strategy",
+  "main": "dist/index.js",
+  "bin": {
+    "stock-analyze": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "ts-node src/index.ts",
+    "analyze": "ts-node src/index.ts",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}

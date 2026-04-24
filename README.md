@@ -1,1 +1,146 @@
 # InvestmentToolAssistant
+
+簡易股票分析小工具（TypeScript / CLI）。
+
+整合下列六層分析並輸出 Markdown 報告：
+
+1. 趨勢位置
+2. K 線型態
+3. 成交量
+4. 法人籌碼（外資 / 投信 / 自營商 / 三大法人合計）
+5. 基本面（營收、EPS、毛利率、營益率、淨利率、本益比、股淨比、殖利率）
+6. 短 / 中 / 長線操作策略（含分批買進、分批賣出、停利、停損）
+
+本工具不提供保證獲利訊號，目的是提供一套可重複使用的分析框架。
+
+---
+
+## 專案結構
+
+```
+src/
+  types/
+    stock.ts                 # 原始輸入資料型別
+    analysis.ts              # 分析輸出型別
+  analysis/
+    candle.ts                # K 線實體 / 影線 / 訊號
+    volume.ts                # 5 / 20 日均量、放量、量縮
+    institutional.ts         # 外資 / 投信 / 自營、連買連賣、強買強賣
+    fundamental.ts           # 營收、獲利、估值、股利、成長評分
+    supportResistance.ts     # 支撐 / 壓力區
+    trend.ts                 # 6 階段趨勢判斷
+    strategy.ts              # 短 / 中 / 長線策略 + 分批買賣計畫
+    report.ts                # Markdown 報告
+  data/
+    mockStockData.ts         # 產生 demo 用的 90 日 mock 資料
+  index.ts                   # CLI 入口 + analyze() API
+examples/
+  sample-report.md           # 用 mock data 產生的範例報告
+```
+
+---
+
+## 安裝
+
+```bash
+npm install
+```
+
+---
+
+## 使用方式
+
+### 1. 直接跑 mock data 並輸出到 stdout
+
+```bash
+npm run analyze
+```
+
+### 2. 存成 Markdown 檔
+
+```bash
+npx ts-node src/index.ts -o examples/sample-report.md
+```
+
+### 3. 用自己的 JSON 資料
+
+```bash
+npx ts-node src/index.ts -i my-stock.json -o my-report.md
+```
+
+`my-stock.json` 需符合 `AnalysisInput`：
+
+```ts
+{
+  "stockId": "2330",
+  "stockName": "台積電",
+  "prices": [
+    { "date": "2026-01-05", "open": 180, "high": 182, "low": 178, "close": 181, "volume": 9000 }
+  ],
+  "institutionalTrades": [
+    { "date": "2026-01-05", "foreignInvestor": 500, "investmentTrust": 80, "dealer": -20, "total": 560 }
+  ],
+  "fundamentals": {
+    "stockId": "2330",
+    "stockName": "台積電",
+    "monthlyRevenueYoY": 22.5,
+    "epsTTM": 45.8,
+    "grossMargin": 53.2,
+    "peRatio": 18.5,
+    "dividendYield": 2.1
+  },
+  "analysisDate": "2026-04-24",
+  "lookbackDays": 60
+}
+```
+
+### 4. 作為 library 使用
+
+```ts
+import { analyze } from "./src";
+import { buildReport } from "./src/analysis/report";
+import { buildMockInput } from "./src/data/mockStockData";
+
+const bundle = analyze(buildMockInput());
+console.log(buildReport(bundle));
+```
+
+---
+
+## 建置
+
+```bash
+npm run build     # 編譯到 dist/
+npm run clean     # 清掉 dist/
+```
+
+---
+
+## 核心分析邏輯（一句話版）
+
+```txt
+支撐不破 + 量縮或長下影 + 法人賣壓縮小 + 基本面沒壞 = 可分批買。
+高檔長上影 + 爆量 + 法人賣超 = 分批停利。
+跌破關鍵支撐 + 放量 + 法人續賣 = 減碼或撤退。
+基本面轉弱 = 不攤平，重新評估。
+```
+
+---
+
+## 範例報告
+
+用內建 mock data 可立即產出一份範例：
+
+```bash
+npx ts-node src/index.ts -o examples/sample-report.md
+```
+
+輸出內容見 [`examples/sample-report.md`](examples/sample-report.md)。
+
+---
+
+## 後續擴充
+
+- 替換 `buildMockInput` 為真實資料來源（TWSE / yfinance / 自有資料庫）
+- 把 `analyze()` 包成 HTTP / tRPC endpoint，串接前端儀表板
+- 擴充至 React / Next.js / Expo App 的股票分析儀表板
