@@ -6,12 +6,8 @@ on:
     - cron: '0 10 * * 1-5'
   workflow_dispatch:
     inputs:
-      stock_id:
-        description: '股票代號（如 2330）'
-        required: false
-        default: '2330'
       stock_ids:
-        description: '多支股票（逗號分隔，會覆蓋 stock_id）'
+        description: '股票代號（逗號分隔，留空則讀 watchlist.json）'
         required: false
         default: ''
 
@@ -46,10 +42,10 @@ jobs:
           mkdir -p "$REPORT_DIR"
 
           IDS_INPUT="${{ github.event.inputs.stock_ids }}"
-          SINGLE_ID="${{ github.event.inputs.stock_id }}"
           if [ -z "$IDS_INPUT" ]; then
-            IDS_INPUT="${SINGLE_ID:-2330}"
+            IDS_INPUT=$(node -e "console.log(require('./watchlist.json').stocks.join(','))")
           fi
+          echo "Using stock ids: $IDS_INPUT"
 
           IFS=',' read -ra IDS <<< "$IDS_INPUT"
           GENERATED=()

@@ -168,7 +168,7 @@ npx ts-node src/index.ts -o examples/sample-report.md
 2. （選用）Settings → Secrets → 新增 `FINMIND_TOKEN`，提高 API 速率
 3. （選用 AI 摘要）Settings → Variables → 新增 `ENABLE_AI_SUMMARY=true`，並在 Secrets 加 `ANTHROPIC_API_KEY`，workflow 會多跑一個 job 讓 Claude 寫白話摘要
 
-要分析多支：手動觸發時在 `stock_ids` 欄位填 `2330,2317,0050`。
+預設清單寫在 `watchlist.json`（目前 `["2330", "3030"]`），cron 會自動跑這份；手動觸發時可在 `stock_ids` 欄位填 `2330,2317,0050` 暫時覆蓋。
 
 ## 後續擴充
 
